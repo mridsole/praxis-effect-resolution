@@ -63,10 +63,6 @@ instance (Show var, Show eff) => Show (Constraint var eff) where
   show (lhs :~: rhs) =
     show lhs ++ " = " ++ show rhs
 
--- | A constraint with variables on only one side.
-data FundamentalConstraint var eff = Term var eff :~.: (Set eff)
-  deriving (Eq, Ord, Show)
-
 -- | A system of constraints.
 data ConstraintSystem v e = ConstraintSystem
   { _constraints :: Set (Constraint v e)
@@ -92,13 +88,6 @@ instance (Show var, Show eff) => Show (ConstraintSystem var eff) where
           "Effects: " ++ (show (Set.toList effs)) ++ "\n\n" ++
           constraintsBlock
 
-
-data FundamentalConstraintSystem v e = FundamentalConstraintSystem
-  { _constraints :: Set (FundamentalConstraint v e)
-  , _variables :: Set v
-  , _effects :: Set e
-  }
-  deriving (Eq, Ord, Show)
 
 -- | The trivial upper bound for a constraint system.
 trivialUpperBound :: Set var -> Set eff -> Candidate var eff
@@ -127,56 +116,6 @@ fromConstraints constraints =
       , _effects = effs
       }
 
-fromFundamentalSystem fcsys =
-  let
-    fconstraints = (_constraints :: FundamentalConstraintSystem v e -> _) fcsys
-    constraints = Set.map fromFundConstraint fconstraints
-    vars = (_variables :: FundamentalConstraintSystem v e -> _) fcsys
-    effs = (_effects :: FundamentalConstraintSystem v e -> _) fcsys
-  in
-    ConstraintSystem
-      { _constraints = constraints
-      , _variables = vars
-      , _effects = effs
-      }
-
--- | Find the fundamental constraints.
-fundamentals :: (Ord v, Ord e) => ConstraintSystem v e -> FundamentalConstraintSystem v e
-fundamentals csys =
-  let
-    constraints = (_constraints :: ConstraintSystem v e -> _) csys
-    fconstraints = (Set.map fromJust . Set.filter isJust . Set.map toFundamental) constraints
-  in
-    FundamentalConstraintSystem
-      { _constraints = fconstraints
-      , _variables = (_variables :: ConstraintSystem v e -> Set v) csys
-      , _effects = (_effects :: ConstraintSystem v e -> Set e) csys
-      }
-
--- | Try to find the maximal solution to a fundamental system.
-fmaximal :: (Ord v, Ord e) => FundamentalConstraintSystem v e -> Maybe (Candidate v e)
-fmaximal fcsys =
-  let
-    fconstraints = (_constraints :: FundamentalConstraintSystem v e -> _) fcsys
-    vars = (_variables :: FundamentalConstraintSystem v e -> _) fcsys
-    effs = (_effects :: FundamentalConstraintSystem v e -> _) fcsys
-    Candidate candidatevs = (trivialUpperBound vars effs)
-    candidate = Candidate $
-      (Map.mapWithKey $ \var veffs ->
-        -- Get the constraints that 'mention' this variable, and take the
-        -- intersection of their RHS effect sets.
-        let
-          mentioned = Set.filter (flip fconstraintHasVar var) fconstraints
-          meffs = Set.map fconstraintEffs mentioned
-        in
-          Set.foldr' Set.intersection veffs meffs
-      )
-      candidatevs
-  in
-    case (fcheck fcsys candidate) of
-      True -> Just candidate
-      False -> Nothing
-
 -- | get the effects of a term.
 termConst :: Ord var => Term var eff -> Set eff
 termConst (Term vars effs) = effs
@@ -195,15 +134,6 @@ termIsConst (Term vars effs) = Set.null vars
 
 constraintHasVar :: Ord var => Constraint var eff -> var -> Bool
 constraintHasVar (lhs :~: rhs) v = termHasVar lhs v || termHasVar rhs v
-
-fconstraintHasVar :: Ord var => FundamentalConstraint var eff -> var -> Bool
-fconstraintHasVar (lhs :~.: effs) v = termHasVar lhs v
-
-fconstraintEffs :: (Ord var, Ord eff) => FundamentalConstraint var eff -> Set eff
-fconstraintEffs (lhs :~.: effs) = effs
-
-fromFundConstraint :: FundamentalConstraint var eff -> Constraint var eff
-fromFundConstraint (lhs :~.: effs) = lhs :~: (Term Set.empty effs)
 
 -- | Fully evaluate a term.
 -- evalTerm :: (Ord v, Ord e) => Term v e -> Candidate v e -> Set e
@@ -227,10 +157,6 @@ evalTerm term candidate =
 checkConstraint (lhs :~: rhs) candidate =
   evalTerm lhs candidate == evalTerm rhs candidate
 
--- | Check that a fundamental constraint is satisfied by a candidate.
-fcheck :: (Ord v, Ord e) => FundamentalConstraintSystem v e -> Candidate v e -> Bool
-fcheck fcsys candidate = check (fromFundamentalSystem fcsys) candidate
-
 -- | Check that a system is satisfied by a candidate.
 check :: (Ord v, Ord e) => ConstraintSystem v e -> Candidate v e -> Bool
 check csys candidate =
@@ -242,13 +168,6 @@ check csys candidate =
       constraints
     ==
       Set.singleton True
-
--- | Try to convert a constraint to a fundamental constraint.
-toFundamental :: Ord v => Constraint v e -> Maybe (FundamentalConstraint v e)
-toFundamental (lhs :~: rhs)
-  | termIsConst lhs = let (Term vars effs) = lhs in Just $ rhs :~.: effs
-  | termIsConst rhs = let (Term vars effs) = rhs in Just $ lhs :~.: effs
-  | otherwise = Nothing
 
 -- | Given a bound on the variables, compute the bound that bounds
 -- all variables appearing in the given constraint.
