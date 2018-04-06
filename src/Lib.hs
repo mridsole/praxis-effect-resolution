@@ -3,9 +3,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# OPTIONS_GHC -fno-warn-partial-type-signatures #-}
 
-module Lib
-  (
-  ) where
+module Lib where
 
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -49,6 +47,13 @@ data Term var eff = Term (Set var) (Set eff)
 instance (Show var, Show eff) => Show (Term var eff) where
   show (Term vars effs) =
     show (Set.toList effs) ++ " U " ++ show (Set.toList vars)
+
+infix 2 +>
+infix 2 <+
+infix 1 :~:
+
+vs <+ es = Term (Set.fromList vs) (Set.fromList es)
+es +> vs = vs <+ es
 
 -- General form of a constraint.
 data Constraint var eff = Term var eff :~: Term var eff
@@ -313,6 +318,7 @@ resolveStep csys candidate =
         False -> Nothing -- No solution.
       False -> Just (Left newbound) -- Pending solution.
 
+-- | Resolve a constraint system.
 resolveConstraints
   :: (Eq v, Eq e, Ord v, Ord e)
   => ConstraintSystem v e
@@ -341,3 +347,25 @@ resolveConstraints csys =
     case final of
       Nothing -> Nothing
       Just (Right x) -> Just x
+
+testSys = fromConstraints $ Set.fromList $
+  [
+    ["A","B","C"] +> ["x1"] :~: ["A","B","C"] +> [],
+    ["C","D","E"] +> ["x2"] :~: ["C","D","E"] +> [],
+    ["E"] +> ["x3"] :~: ["E"] +> [],
+    ["C"] +> ["x4"] :~: ["C"] +> [],
+    ["A"] +> ["x2", "x3"] :~: ["E"] +> ["x1"],
+    [] +> ["x2"] :~: [] +> ["x5"],
+    [] +> ["x5"] :~: [] +> ["x4"]
+  ]
+
+testSys2 = fromConstraints $ Set.fromList $
+  [
+    [1,2,3] +> [1] :~: [1,2,3] +> [],
+    [3,4,5] +> [2] :~: [3,4,5] +> [],
+    [5] +> [3] :~: [5] +> [],
+    [3] +> [4] :~: [3] +> [],
+    [1] +> [2,3] :~: [5] +> [1],
+    [] +> [2] :~: [] +> [5],
+    [] +> [5] :~: [] +> [4]
+  ]
